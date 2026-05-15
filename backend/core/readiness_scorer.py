@@ -72,6 +72,7 @@ def generate_explanation(gap_data: dict, job_title: str) -> dict:
         response = client.messages.create(
             model="claude-opus-4-5",
             max_tokens=1000,
+            timeout=15.0,
             messages=[{"role": "user", "content": prompt}]
         )
         

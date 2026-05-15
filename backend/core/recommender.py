@@ -116,13 +116,12 @@ def recommend_projects(student_id: int, job_id: int = None, limit: int = 5) -> L
         overlap = 0
         covered_skills = []
 
-        for missing in missing_skills:
-            for req in required:
-                if (missing.lower() in req.lower() or
-                        req.lower() in missing.lower()):
-                    overlap += 1
-                    covered_skills.append(req)
-                    break
+        normalized_missing = [m.lower() for m in missing_skills]
+        for req in required:
+            req_lower = req.lower()
+            if any(m in req_lower or req_lower in m for m in normalized_missing):
+                overlap += 1
+                covered_skills.append(req)
 
         difficulty_score = 1.0
         difficulty = project['difficulty']

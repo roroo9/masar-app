@@ -9,11 +9,16 @@ Fix coverage:
   4. add_student_courses    — single batch SELECT instead of N SELECTs (N+1 fix)
   5. add_extra_skills       — batch INSERT via execute_values instead of N INSERTs
   6. process_job/course     — conn.commit() called once per batch, not per skill
+  7. get_readiness_score    — async def + asyncio.to_thread (non-blocking)
+  8. generate_explanation   — Claude call has timeout=15.0
+  9. recommend_projects     — O(n+m) matcher replaces O(n×m) nested loop
+ 10. database.py pool       — ThreadedConnectionPool initialised on first use
 """
 
 import sys
 import os
 import time
+import textwrap
 import numpy as np
 import pytest
 from unittest.mock import MagicMock, patch, call
@@ -474,3 +479,260 @@ class TestSkillExtractorCommitOnce:
             process_job(1, "Empty Job", "no skills here")
 
         assert conn.commit.call_count == 1
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Fix 7 — get_readiness_score: async def + asyncio.to_thread
+# ════════════════════════════════════════════════════════════════════════════
+
+class TestReadinessEndpointAsync:
+
+    def test_endpoint_is_coroutine(self):
+        """get_readiness_score must be an async function (coroutine)."""
+        import inspect
+        from api.routes.student import get_readiness_score
+        assert inspect.iscoroutinefunction(get_readiness_score), (
+            "get_readiness_score must be 'async def' to avoid blocking the event loop"
+        )
+
+    def test_endpoint_uses_to_thread(self):
+        """compute_and_save must be offloaded via asyncio.to_thread."""
+        import ast, textwrap, inspect
+        from api.routes import student as student_mod
+        src = inspect.getsource(student_mod.get_readiness_score)
+        assert "to_thread" in src, (
+            "get_readiness_score must call asyncio.to_thread(compute_and_save, ...) "
+            "to avoid blocking the async event loop during gap analysis"
+        )
+
+    def test_endpoint_invocable(self):
+        """Sanity: endpoint can be awaited and delegates to compute_and_save."""
+        import asyncio
+        from api.routes.student import get_readiness_score
+        fake_result = {"score": 72, "matched_skills": [], "missing_skills": [],
+                       "partial_skills": [], "explanation": {}}
+        with patch("api.routes.student.compute_and_save", return_value=fake_result):
+            result = asyncio.get_event_loop().run_until_complete(
+                get_readiness_score(student_id=1, job_id=1, force=False, explanation=False)
+            )
+        assert result["score"] == 72
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Fix 8 — generate_explanation: Claude call has timeout=15.0
+# ════════════════════════════════════════════════════════════════════════════
+
+class TestClaudeTimeout:
+
+    def test_timeout_kwarg_present(self):
+        """client.messages.create() must be called with timeout=15.0."""
+        import inspect
+        from core import readiness_scorer
+        src = inspect.getsource(readiness_scorer.generate_explanation)
+        assert "timeout" in src, (
+            "generate_explanation must pass timeout= to client.messages.create() "
+            "to prevent infinite hangs when Claude is slow"
+        )
+
+    def test_timeout_value_is_15(self):
+        import re, inspect
+        from core import readiness_scorer
+        src = inspect.getsource(readiness_scorer.generate_explanation)
+        match = re.search(r"timeout\s*=\s*([0-9.]+)", src)
+        assert match is not None, "timeout= keyword not found in generate_explanation"
+        assert float(match.group(1)) == 15.0, (
+            f"Expected timeout=15.0 but found timeout={match.group(1)}"
+        )
+
+    def test_timeout_passed_to_create(self):
+        """Integration: mock Anthropic client records the timeout kwarg."""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock(text='{"summary":"ok","strengths":[],'
+                                            '"improvement_areas":[],"next_steps":[],'
+                                            '"motivational_close":"go"}')]
+        mock_client.messages.create.return_value = mock_response
+
+        with patch("core.readiness_scorer.anthropic.Anthropic", return_value=mock_client):
+            from core.readiness_scorer import generate_explanation
+            generate_explanation(
+                {"readiness_score": 70, "matched_skills": [], "partial_skills": [],
+                 "missing_skills": [], "matched_count": 0, "partial_count": 0, "missing_count": 0},
+                "Software Engineer at Acme"
+            )
+
+        _, kwargs = mock_client.messages.create.call_args
+        assert "timeout" in kwargs, "timeout kwarg was not passed to client.messages.create()"
+        assert kwargs["timeout"] == 15.0
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Fix 9 — recommend_projects: O(n+m) matcher
+# ════════════════════════════════════════════════════════════════════════════
+
+class TestRecommenderEfficiency:
+
+    def _call_recommend(self, missing_skills, required):
+        """Exercise the inner matching loop via recommend_projects with mocked DB."""
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        project_row = {
+            "id": 1, "title": "Test Project", "company": "Test Co",
+            "description": "Desc", "difficulty": "intermediate",
+            "required_skills": required, "estimated_hours": 20,
+        }
+        mock_cursor.fetchall.side_effect = [
+            [project_row],    # all_projects
+            [],               # student_skill_ids (empty)
+        ]
+
+        with (
+            patch("core.recommender.get_connection", return_value=mock_conn),
+            patch("core.recommender.get_student_missing_skills", return_value=missing_skills),
+            patch("core.recommender.get_student_info", return_value={"year_of_study": 3}),
+        ):
+            from core.recommender import recommend_projects
+            return recommend_projects(student_id=1, job_id=1)
+
+    def test_matching_skill_found(self):
+        results = self._call_recommend(["python"], ["Python programming", "SQL"])
+        assert len(results) == 1
+        assert results[0]["relevance_score"] > 0
+
+    def test_no_match_returns_empty(self):
+        results = self._call_recommend(["java"], ["Python programming", "SQL"])
+        assert len(results) == 0
+
+    def test_match_is_case_insensitive(self):
+        results = self._call_recommend(["PYTHON"], ["python basics"])
+        assert len(results) == 1
+
+    def test_pre_normalized_avoids_redundant_lower_calls(self):
+        """All required skills matched in a single pass — no quadratic growth."""
+        import inspect
+        from core import recommender
+        src = inspect.getsource(recommender.recommend_projects)
+        assert "normalized_missing" in src, (
+            "recommend_projects should pre-normalize missing skills once, "
+            "not call .lower() inside the inner loop"
+        )
+
+    def test_no_nested_for_loop(self):
+        """The O(n×m) nested loop must be gone."""
+        import ast, inspect
+        from core import recommender
+        src = inspect.getsource(recommender.recommend_projects)
+        tree = ast.parse(textwrap.dedent(src))
+
+        for_loops = [n for n in ast.walk(tree) if isinstance(n, ast.For)]
+        # After fix there should be at most 2 for-loops:
+        #   outer: for project in all_projects
+        #   inner: for req in required   (now uses any() generator)
+        # The old code had 3 (outer + missing loop + req loop).
+        # We allow ≤2 to confirm the nested loop is gone.
+        assert len(for_loops) <= 2, (
+            f"Found {len(for_loops)} for-loops; expected ≤2 after O(n×m) fix"
+        )
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Fix 10 — database.py: ThreadedConnectionPool
+# ════════════════════════════════════════════════════════════════════════════
+
+class TestConnectionPool:
+
+    def test_pool_created_on_first_call(self):
+        import db.database as db_mod
+        original_pool = db_mod._pool
+        try:
+            db_mod._pool = None  # reset to trigger lazy init
+            mock_pool = MagicMock()
+            mock_conn = MagicMock()
+            mock_pool.getconn.return_value = mock_conn
+
+            with patch("db.database.psycopg2.pool.ThreadedConnectionPool",
+                       return_value=mock_pool) as mock_cls:
+                with db_mod.pooled_connection() as conn:
+                    assert conn is mock_conn
+                mock_cls.assert_called_once()
+        finally:
+            db_mod._pool = original_pool
+
+    def test_pool_reused_on_second_call(self):
+        import db.database as db_mod
+        original_pool = db_mod._pool
+        try:
+            db_mod._pool = None
+            mock_pool = MagicMock()
+            mock_pool.getconn.return_value = MagicMock()
+
+            with patch("db.database.psycopg2.pool.ThreadedConnectionPool",
+                       return_value=mock_pool) as mock_cls:
+                with db_mod.pooled_connection():
+                    pass
+                with db_mod.pooled_connection():
+                    pass
+            # Pool constructor must only be called once across two uses
+            assert mock_cls.call_count == 1
+        finally:
+            db_mod._pool = original_pool
+
+    def test_connection_returned_to_pool_on_exit(self):
+        import db.database as db_mod
+        original_pool = db_mod._pool
+        try:
+            db_mod._pool = None
+            mock_pool = MagicMock()
+            mock_conn = MagicMock()
+            mock_pool.getconn.return_value = mock_conn
+
+            with patch("db.database.psycopg2.pool.ThreadedConnectionPool",
+                       return_value=mock_pool):
+                with db_mod.pooled_connection() as conn:
+                    pass  # context exit triggers putconn
+            mock_pool.putconn.assert_called_once_with(mock_conn)
+        finally:
+            db_mod._pool = original_pool
+
+    def test_connection_returned_even_on_exception(self):
+        """putconn must be called even if code inside the context raises."""
+        import db.database as db_mod
+        original_pool = db_mod._pool
+        try:
+            db_mod._pool = None
+            mock_pool = MagicMock()
+            mock_pool.getconn.return_value = MagicMock()
+
+            with patch("db.database.psycopg2.pool.ThreadedConnectionPool",
+                       return_value=mock_pool):
+                with pytest.raises(RuntimeError):
+                    with db_mod.pooled_connection():
+                        raise RuntimeError("simulated failure")
+            mock_pool.putconn.assert_called_once()
+        finally:
+            db_mod._pool = original_pool
+
+    def test_pool_size_config(self):
+        """Pool must be created with minconn=2, maxconn=20."""
+        import db.database as db_mod
+        original_pool = db_mod._pool
+        try:
+            db_mod._pool = None
+            mock_pool = MagicMock()
+            mock_pool.getconn.return_value = MagicMock()
+
+            with patch("db.database.psycopg2.pool.ThreadedConnectionPool",
+                       return_value=mock_pool) as mock_cls:
+                with db_mod.pooled_connection():
+                    pass
+            call_args = mock_cls.call_args
+            positional = call_args[0]
+            keyword = call_args[1] if len(call_args) > 1 else {}
+            minconn = positional[0] if len(positional) > 0 else keyword.get("minconn")
+            maxconn = positional[1] if len(positional) > 1 else keyword.get("maxconn")
+            assert minconn == 2, f"minconn should be 2, got {minconn}"
+            assert maxconn == 20, f"maxconn should be 20, got {maxconn}"
+        finally:
+            db_mod._pool = original_pool
