@@ -2,16 +2,33 @@ import psycopg2
 import psycopg2.extras
 import psycopg2.pool
 import os
+import urllib.parse
 from contextlib import contextmanager
 from typing import Optional
 
-DB_CONFIG = {
-    "host": os.environ.get("DB_HOST", "localhost"),
-    "port": int(os.environ.get("DB_PORT", 5432)),
-    "database": os.environ.get("DB_NAME", "masar"),
-    "user": os.environ.get("DB_USER", "masar_user"),
-    "password": os.environ.get("DB_PASSWORD", "masar_pass")
-}
+
+def _build_db_config() -> dict:
+    """Prefer DATABASE_URL (Railway/Render), fall back to individual env vars."""
+    url = os.environ.get("DATABASE_URL")
+    if url:
+        parsed = urllib.parse.urlparse(url)
+        return {
+            "host": parsed.hostname,
+            "port": parsed.port or 5432,
+            "database": parsed.path.lstrip("/"),
+            "user": parsed.username,
+            "password": parsed.password,
+        }
+    return {
+        "host": os.environ.get("DB_HOST", "localhost"),
+        "port": int(os.environ.get("DB_PORT", 5432)),
+        "database": os.environ.get("DB_NAME", "masar"),
+        "user": os.environ.get("DB_USER", "masar_user"),
+        "password": os.environ.get("DB_PASSWORD", "masar_pass"),
+    }
+
+
+DB_CONFIG = _build_db_config()
 
 _pool: Optional[psycopg2.pool.ThreadedConnectionPool] = None
 
