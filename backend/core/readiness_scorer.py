@@ -1,20 +1,9 @@
 import json
 import anthropic
 import os
-import psycopg2
 import psycopg2.extras
 from core.gap_analyzer import analyze_gap
-
-DB_CONFIG = {
-    "host": "localhost",
-    "port": 5432,
-    "database": "masar",
-    "user": "masar_user",
-    "password": "masar_pass"
-}
-
-def get_connection():
-    return psycopg2.connect(**DB_CONFIG)
+from db.database import get_connection
 
 EXPLANATION_PROMPT = """You are a career advisor for a university student in Saudi Arabia.
 

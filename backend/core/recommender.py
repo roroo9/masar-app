@@ -1,18 +1,10 @@
-import psycopg2
 import psycopg2.extras
 import json
+import sys
+import os
 from typing import List, Dict
-
-DB_CONFIG = {
-    "host": "localhost",
-    "port": 5432,
-    "database": "masar",
-    "user": "masar_user",
-    "password": "masar_pass"
-}
-
-def get_connection():
-    return psycopg2.connect(**DB_CONFIG)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from db.database import get_connection
 
 def get_student_missing_skills(student_id: int, job_id: int = None) -> List[str]:
     """Get list of skills the student is missing."""
