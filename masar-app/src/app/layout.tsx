@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import AuthProvider from "@/components/auth-provider";
 
 export const metadata: Metadata = {
   title: "مسار",
@@ -13,7 +14,7 @@ export default function RootLayout({
     <html lang="ar" dir="rtl">
       <body className="min-h-screen bg-canvas text-text">
         <div className="mx-auto w-full max-w-[390px] min-h-screen bg-canvas">
-          {children}
+          <AuthProvider>{children}</AuthProvider>
         </div>
       </body>
     </html>

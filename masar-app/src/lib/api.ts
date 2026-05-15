@@ -1,14 +1,6 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-export const DEFAULT_STUDENT_ID = 3;
-
-export function getStudentId(): number {
-  if (typeof window !== "undefined") {
-    const stored = localStorage.getItem("masar_student_id");
-    if (stored) return parseInt(stored, 10);
-  }
-  return DEFAULT_STUDENT_ID;
-}
+export { getStudentId } from "@/lib/auth";
 
 export type StudentSkill = {
   id: number;
@@ -124,25 +116,26 @@ export type JobsResponse = {
   total: number;
 };
 
+function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("masar_token") : null;
+  return token
+    ? { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...extra }
+    : { "Content-Type": "application/json", ...extra };
+}
+
 async function getJSON<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
-    headers: { "Content-Type": "application/json" },
-  });
-  if (!res.ok) {
-    throw new Error(`Request failed: ${res.status} ${res.statusText}`);
-  }
+  const res = await fetch(`${API_URL}${path}`, { headers: authHeaders() });
+  if (!res.ok) throw new Error(`Request failed: ${res.status} ${res.statusText}`);
   return (await res.json()) as T;
 }
 
 async function postJSON<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: authHeaders(),
     body: JSON.stringify(body),
   });
-  if (!res.ok) {
-    throw new Error(`Request failed: ${res.status} ${res.statusText}`);
-  }
+  if (!res.ok) throw new Error(`Request failed: ${res.status} ${res.statusText}`);
   return (await res.json()) as T;
 }
 
@@ -332,8 +325,10 @@ export async function extractFromPDF(
 ): Promise<ExtractFromDescriptionResponse> {
   const form = new FormData();
   form.append("file", file);
+  const token = typeof window !== "undefined" ? localStorage.getItem("masar_token") : null;
   const res = await fetch(`${API_URL}/api/students/${studentId}/extract-from-pdf`, {
     method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: form,
   });
   if (!res.ok) {
@@ -341,4 +336,28 @@ export async function extractFromPDF(
     throw new Error((err as { detail?: string }).detail ?? `Request failed: ${res.status}`);
   }
   return (await res.json()) as ExtractFromDescriptionResponse;
+}
+
+// ── Auth ─────────────────────────────────────────────────────────────────────
+
+export type AuthResponse = {
+  token: string;
+  student_id: number;
+};
+
+export type RegisterInput = {
+  name: string;
+  email: string;
+  password: string;
+  major: string;
+  year_of_study: number;
+  university: string;
+};
+
+export function register(data: RegisterInput): Promise<AuthResponse> {
+  return postJSON("/api/auth/register", data);
+}
+
+export function login(email: string, password: string): Promise<AuthResponse> {
+  return postJSON("/api/auth/login", { email, password });
 }

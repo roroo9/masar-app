@@ -2,12 +2,12 @@
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { isAuthenticated } from '@/lib/auth'
 
 export default function Home() {
   const router = useRouter()
   useEffect(() => {
-    const profile = localStorage.getItem('masar_profile')
-    router.replace(profile ? '/dashboard' : '/onboarding')
+    router.replace(isAuthenticated() ? '/dashboard' : '/login')
   }, [router])
   return null
 }
