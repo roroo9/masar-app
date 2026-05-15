@@ -37,4 +37,15 @@ def root():
 
 @app.get("/health")
 def health():
-    return {"status": "healthy"}
+    try:
+        from db.database import get_connection
+        conn = get_connection()
+        conn.cursor().execute("SELECT 1")
+        conn.close()
+        db_status = "ok"
+    except Exception as e:
+        db_status = f"error: {e}"
+    return {
+        "status": "healthy" if db_status == "ok" else "degraded",
+        "db": db_status,
+    }

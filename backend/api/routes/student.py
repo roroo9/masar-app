@@ -8,19 +8,9 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from core.gap_analyzer import analyze_gap, get_all_jobs
 from core.readiness_scorer import compute_and_save
+from db.database import get_connection
 
 router = APIRouter(prefix="/api/students", tags=["students"])
-
-DB_CONFIG = {
-    "host": "localhost",
-    "port": 5432,
-    "database": "masar",
-    "user": "masar_user",
-    "password": "masar_pass"
-}
-
-def get_connection():
-    return psycopg2.connect(**DB_CONFIG)
 
 class StudentCreate(BaseModel):
     name: str

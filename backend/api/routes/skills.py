@@ -1,22 +1,13 @@
 from fastapi import APIRouter
-import psycopg2
 import psycopg2.extras
 import os
 import json
+import sys
 import anthropic
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from db.database import get_connection
 
 router = APIRouter(prefix="/api/skills", tags=["skills"])
-
-DB_CONFIG = {
-    "host": "localhost",
-    "port": 5432,
-    "database": "masar",
-    "user": "masar_user",
-    "password": "masar_pass"
-}
-
-def get_connection():
-    return psycopg2.connect(**DB_CONFIG)
 
 @router.get("/")
 def get_all_skills():
