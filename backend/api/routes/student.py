@@ -189,8 +189,9 @@ def get_student_skills_route(student_id: int):
     }
 
 @router.get("/{student_id}/readiness/{job_id}")
-def get_readiness_score(student_id: int, job_id: int, force: bool = False, explanation: bool = False):
-    result = compute_and_save(student_id, job_id, force=force, with_explanation=explanation)
+async def get_readiness_score(student_id: int, job_id: int, force: bool = False, explanation: bool = False):
+    import asyncio
+    result = await asyncio.to_thread(compute_and_save, student_id, job_id, force=force, with_explanation=explanation)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result

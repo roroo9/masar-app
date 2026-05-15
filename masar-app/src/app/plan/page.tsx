@@ -79,6 +79,16 @@ function PlanSkeleton() {
   );
 }
 
+function ExplanationSkeleton() {
+  return (
+    <div className="animate-pulse px-5 space-y-2.5">
+      {[1, 2, 3].map((i) => (
+        <div key={i} className="h-[108px] rounded-xl bg-gray-200" />
+      ))}
+    </div>
+  );
+}
+
 type Step = ImprovementArea & { priorityLabel: string; isActive: boolean };
 
 function priorityFor(index: number, total: number): string {
@@ -113,6 +123,7 @@ export default function PlanPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [explanationStatus, setExplanationStatus] = useState<"idle" | "loading" | "ready">("idle");
   const { plan, remove } = usePlan();
 
   const fetchAll = useCallback(async (force = false) => {
@@ -122,19 +133,27 @@ export default function PlanPage() {
       const topJobId =
         dashboard.top_scores[0]?.job_id ?? dashboard.jobs[0]?.job_id;
       if (topJobId != null) {
+        // Phase 1: score (no Claude) + projects — renders in <500ms
         const [r, p] = await Promise.all([
-          getReadiness(sid, topJobId, force, true),
+          getReadiness(sid, topJobId, force, false),
           getStudentProjects(sid, topJobId),
         ]);
         setReadiness(r);
         setProjects(p.projects);
+        setStatus("ready");
+        setIsRefreshing(false);
+        // Phase 2: Claude explanation in background — skeleton until it arrives
+        setExplanationStatus("loading");
+        getReadiness(sid, topJobId, false, true)
+          .then((full) => { setReadiness(full); setExplanationStatus("ready"); })
+          .catch(() => setExplanationStatus("idle"));
       } else {
         setReadiness(null);
+        setStatus("ready");
+        setIsRefreshing(false);
       }
-      setStatus("ready");
     } catch {
       setStatus("error");
-    } finally {
       setIsRefreshing(false);
     }
   }, []);
@@ -225,7 +244,9 @@ export default function PlanPage() {
             <h2 className="text-[16px] font-bold text-text">الخطوات القادمة</h2>
           </section>
 
-          {steps.length === 0 ? (
+          {explanationStatus === "loading" && steps.length === 0 ? (
+            <ExplanationSkeleton />
+          ) : steps.length === 0 ? (
             <div className="px-5 py-6 text-center">
               <p className="text-[14px] font-semibold text-text">لا توجد خطوات بعد</p>
               <p className="mt-1.5 text-[12.5px] text-muted">
