@@ -19,11 +19,11 @@ import {
   getStudent,
   getDashboard,
   getReadiness,
-  getStudentId,
   type Student,
   type DashboardResponse,
   type ReadinessResponse,
 } from '@/lib/api'
+import { getStudentId, clearAuth } from '@/lib/auth'
 import { LoadingSpinner } from '@/lib/states'
 
 type LocalProfile = {
@@ -219,10 +219,8 @@ export default function ProfilePage() {
         </Link>
         <button
           onClick={() => {
-            localStorage.removeItem('masar_profile')
-            localStorage.removeItem('masar_student_id')
-            localStorage.removeItem('masar_plan')
-            router.push('/onboarding')
+            clearAuth()
+            router.replace('/login')
           }}
           className="flex w-full items-center justify-between rounded-xl border border-red-100 bg-white px-4 py-3.5"
         >

@@ -3,11 +3,13 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft } from 'lucide-react'
-import { createStudent, addExtraSkills, getAllSkillsList, getDashboard, getReadiness, getStudentId, type SkillListItem } from '@/lib/api'
+import { register, addExtraSkills, getAllSkillsList, getDashboard, getReadiness, type SkillListItem } from '@/lib/api'
+import { setAuth, getStudentId } from '@/lib/auth'
 
 type Profile = {
   name: string
   email: string
+  password: string
   university: string
   major: string
   graduationYear: string
@@ -40,7 +42,7 @@ export default function OnboardingPage() {
   const [skills, setSkills] = useState<SkillListItem[]>([])
   const [selectedSkillIds, setSelectedSkillIds] = useState<Set<number>>(new Set())
   const [profile, setProfile] = useState<Profile>({
-    name: '', email: '', university: '', major: '', graduationYear: '', targetRole: '',
+    name: '', email: '', password: '', university: '', major: '', graduationYear: '', targetRole: '',
   })
 
   // Pre-fetch skills when reaching step 4
@@ -63,7 +65,7 @@ export default function OnboardingPage() {
   }
 
   function canAdvance() {
-    if (step === 1) return profile.name.trim().length > 0 && profile.email.trim().includes('@')
+    if (step === 1) return profile.name.trim().length > 0 && profile.email.trim().includes('@') && profile.password.length >= 6
     if (step === 2) return profile.university.trim().length > 0 && profile.major.trim().length > 0
     if (step === 3) return profile.graduationYear !== '' && profile.targetRole !== ''
     return true // step 4 is always skippable
@@ -79,17 +81,18 @@ export default function OnboardingPage() {
     try {
       let studentId: number | null = null
       try {
-        const result = await createStudent({
+        const result = await register({
           name: profile.name,
           email: profile.email,
+          password: profile.password,
           major: profile.major,
           year_of_study: gradYearToYearOfStudy(profile.graduationYear),
           university: profile.university,
         })
-        studentId = result.id
-        localStorage.setItem('masar_student_id', String(studentId))
+        setAuth(result.token, result.student_id)
+        studentId = result.student_id
       } catch {
-        // email already registered or API down — use existing student id
+        // email already registered — fall back to existing session
         studentId = getStudentId()
       }
 
@@ -195,6 +198,13 @@ export default function OnboardingPage() {
               <label className="mb-2 block text-[13.5px] font-semibold text-text">البريد الإلكتروني</label>
               <input type="email" placeholder="example@university.edu.sa" value={profile.email}
                 onChange={e => update('email', e.target.value)} dir="ltr"
+                className="w-full rounded-xl border border-black/[0.12] bg-white px-4 py-3.5 text-right text-[15px] text-text placeholder:text-muted/60 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-[13.5px] font-semibold text-text">كلمة المرور</label>
+              <input type="password" placeholder="6 أحرف على الأقل" value={profile.password}
+                onChange={e => update('password', e.target.value)} dir="ltr"
                 className="w-full rounded-xl border border-black/[0.12] bg-white px-4 py-3.5 text-right text-[15px] text-text placeholder:text-muted/60 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
               />
             </div>

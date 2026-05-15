@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.routes import student, jobs, skills, courses
+from api.routes import student, jobs, skills, courses, auth
 
 app = FastAPI(
     title="Masar API",
@@ -26,6 +26,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
 app.include_router(student.router)
 app.include_router(jobs.router)
 app.include_router(skills.router)
