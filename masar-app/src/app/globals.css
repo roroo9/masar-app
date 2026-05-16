@@ -1,0 +1,38 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-primary: #5d3fd3;
+  --color-purple-light: #ede9fe;
+  --color-purple-subtle: #f5f1ff;
+  --color-text: #1a1a1a;
+  --color-muted: #888780;
+  --color-canvas: #faf9f5;
+
+  --font-sans: system-ui, -apple-system, "SF Arabic", "Geeza Pro",
+    "Segoe UI", "Tahoma", "Arial Unicode MS", Arial, sans-serif;
+}
+
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html,
+body {
+  background: var(--color-canvas);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+}
+
+body {
+  min-height: 100vh;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
